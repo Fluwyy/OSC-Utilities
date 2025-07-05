@@ -8,6 +8,7 @@
 #include "socket.h"
 #include "oscUtility.h"
 #include "mediaControl.h"
+#include "keyPress.h"
 
 #define PORT_IN 9001
 #define CLIENT "127.0.0.1"
@@ -51,6 +52,7 @@ void signalHandler(int sig) {
     printf("\nShutting down...\n");
     running = 0;
     
+    shutdownKeyPressSystem();
     mediaShutdown();
     
     if (sockfd >= 0) {
@@ -77,6 +79,11 @@ int main(int argc, char *argv[]) {
     loadConfig();
     
     mediaStartup();
+    
+    if (initKeyPressSystem() < 0) {
+        printf("Warning: KeyPress system initialization failed\n");
+        printf("Key press actions will not be available\n");
+    }
     
     sockfd = udpSocket(inPort);
     if (sockfd < 0) {
