@@ -1,6 +1,8 @@
-# OSC parameters sys-Utilities for liunx 
+# OSC-Utilities parameters (Linux)
 application that allows you to filter through VRChat osc logs and set custom actions/system actions
-# sysUtilities media control only
+
+# sysUtilities 
+media control only 
 may add more in the future or an osc chat box
 
 # OSC custom parameters utilities
