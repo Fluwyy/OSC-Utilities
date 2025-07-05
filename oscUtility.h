@@ -21,7 +21,7 @@ typedef struct {
     char action[MAX_ACTION_LENGTH]; 
     int triggerAction;               
     int lastExecutionCount;         
-    time_t lastExecutionTime;       // New field for time-based rate limiting
+    time_t lastExecutionTime;      
 } perimeterFilter;
 
 extern perimeterFilter perimeterFilters[MAX_FILTERS];
@@ -56,7 +56,6 @@ void addDefaultFilter(const char* pattern, const char* action, const char* descr
 void listBuiltinActions(void);
 int executeBuiltinAction(const char* actionName, const char* parameter);
 
-// New function to check if action can be executed (rate limiting)
 int canExecuteAction(perimeterFilter* filter);
 
 #endif
