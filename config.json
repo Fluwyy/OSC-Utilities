@@ -1,0 +1,29 @@
+{
+  "messagePrintingEnabled": false,
+  "filters": [
+    {
+      "pattern": "/avatar/parameters/playpause",
+      "enabled": true,
+      "triggerAction": true,
+      "action": "@media-play"
+    },
+    {
+      "pattern": "/avatar/parameters/Stop",
+      "enabled": true,
+      "triggerAction": true,
+      "action": "@media-stop"
+    },
+    {
+      "pattern": "/avatar/parameters/Next",
+      "enabled": true,
+      "triggerAction": true,
+      "action": "@media-next"
+    },
+    {
+      "pattern": "/avatar/parameters/previous",
+      "enabled": true,
+      "triggerAction": true,
+      "action": "@media-prev"
+    }
+  ]
+}
