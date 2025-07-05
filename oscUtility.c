@@ -1,6 +1,7 @@
 #include "oscUtility.h"
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 perimeterFilter perimeterFilters[MAX_FILTERS];
 int filterCount = 0;
@@ -17,15 +18,48 @@ static const DefaultFilter defaultFilters[] = {
     {"/avatar/parameters/MediaStop", "@media-stop", "Media stop control"},
     {"/avatar/parameters/MediaNext", "@media-next", "Media next track"},
     {"/avatar/parameters/MediaPrev", "@media-prev", "Media previous track"},
-    
-    {"/avatar/parameters/MuteSelf", "@media-play", "Toggle self mute (mapped to play/pause)"},
-    {"/avatar/parameters/Voice", "@media-play", "Voice activation (mapped to play/pause)"},
-    
-    {"/avatar/parameters/GestureLeft", "@media-prev", "Left gesture (previous track)"},
-    {"/avatar/parameters/GestureRight", "@media-next", "Right gesture (next track)"},
-    
     {NULL, NULL, NULL}
 };
+
+int fileExists(const char* filename) {
+    struct stat buffer;
+    return (stat(filename, &buffer) == 0);
+}
+
+int generateDefaultConfig(void) {
+    printf("Config file '%s' not found. Generating default configuration...\n", CONFIG_FILE);
+    
+    messagePrintingEnabled = 1;
+    filterCount = 0;
+    
+    for (int i = 0; defaultFilters[i].pattern != NULL && filterCount < MAX_FILTERS; i++) {
+        strcpy(perimeterFilters[filterCount].pattern, defaultFilters[i].pattern);
+        strcpy(perimeterFilters[filterCount].action, defaultFilters[i].action);
+        perimeterFilters[filterCount].count = 0;
+        perimeterFilters[filterCount].enabled = 1;
+        perimeterFilters[filterCount].lastReceived = 0;
+        perimeterFilters[filterCount].triggerAction = 1; 
+        perimeterFilters[filterCount].lastExecutionCount = 0;
+        perimeterFilters[filterCount].lastExecutionTime = 0;
+        filterCount++;
+        
+        printf("  -> Added: %s (%s)\n", 
+               defaultFilters[i].pattern, defaultFilters[i].description);
+    }
+    
+    printf("Saving default config to '%s'...\n", CONFIG_FILE);
+    if (saveConfig() == 0) {
+        printf("✓ Default config file created successfully!\n");
+        printf("✓ Generated %d default media control filters\n", filterCount);
+        printf("✓ Message printing enabled\n");
+        printf("✓ Rate limiting: >=2 counts AND >=%d second(s)\n", RATE_LIMIT_SECONDS);
+        return 0;
+    } else {
+        printf("✗ ERROR: Failed to create config file '%s'\n", CONFIG_FILE);
+        printf("  Check file permissions in current directory\n");
+        return -1;
+    }
+}
 
 int canExecuteAction(perimeterFilter* filter) {
     time_t currentTime = time(NULL);
@@ -37,7 +71,7 @@ int canExecuteAction(perimeterFilter* filter) {
     double timeDiff = 0.0;
     
     if (filter->lastExecutionTime == 0) {
-        timeOK = 1; // First execution
+        timeOK = 1; 
         timeDiff = 0.0;
     } else {
         timeDiff = difftime(currentTime, filter->lastExecutionTime);
@@ -50,7 +84,6 @@ int canExecuteAction(perimeterFilter* filter) {
                timeDiff, RATE_LIMIT_SECONDS, timeOK ? "OK" : "BLOCKED");
     }
     
-    // Both conditions must be met
     if (countOK && timeOK) {
         filter->lastExecutionTime = currentTime;
         return 1;
@@ -284,6 +317,7 @@ void executeAction(const char* action) {
         execl("/bin/sh", "sh", "-c", action, (char *)NULL);
         exit(1);
     } else if (pid > 0) {
+        // Non-blocking execution
     } else {
         perror("fork failed");
     }
@@ -307,7 +341,7 @@ void setupDefaultFilters(void) {
             perimeterFilters[filterCount].count = 0;
             perimeterFilters[filterCount].enabled = 1;
             perimeterFilters[filterCount].lastReceived = 0;
-            perimeterFilters[filterCount].triggerAction = 1; 
+            perimeterFilters[filterCount].triggerAction = 1;
             perimeterFilters[filterCount].lastExecutionCount = 0;
             perimeterFilters[filterCount].lastExecutionTime = 0;
             filterCount++;
@@ -404,7 +438,12 @@ int executeBuiltinAction(const char* actionName, const char* parameter) {
 int saveConfig(void) {
     FILE *file = fopen(CONFIG_FILE, "w");
     if (!file) {
-        perror("Failed to open config file for writing");
+        printf("ERROR: Cannot create/write to config file '%s'\n", CONFIG_FILE);
+        printf("Current directory: ");
+        system("pwd");
+        printf("Permissions: ");
+        system("ls -la . | head -1");
+        perror("fopen failed");
         return -1;
     }
 
@@ -427,15 +466,31 @@ int saveConfig(void) {
     fprintf(file, "  ]\n");
     fprintf(file, "}\n");
     
-    fclose(file);
+    if (fclose(file) != 0) {
+        perror("Error closing config file");
+        return -1;
+    }
+    
     return 0;
 }
 
 int loadConfig(void) {
+    if (!fileExists(CONFIG_FILE)) {
+        printf("=== FIRST RUN SETUP ===\n");
+        if (generateDefaultConfig() != 0) {
+            printf("Failed to generate default config, starting with empty configuration\n");
+            filterCount = 0;
+            messagePrintingEnabled = 0;
+            return -1;
+        }
+        printf("=== SETUP COMPLETE ===\n\n");
+        return 0;
+    }
+
     FILE *file = fopen(CONFIG_FILE, "r");
     if (!file) {
-        printf("No config file found, starting with empty filters\n");
-        return 0;
+        printf("Failed to open existing config file, generating default config\n");
+        return generateDefaultConfig();
     }
 
     char line[1024];
