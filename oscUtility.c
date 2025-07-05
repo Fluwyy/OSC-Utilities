@@ -30,11 +30,9 @@ static const DefaultFilter defaultFilters[] = {
 int canExecuteAction(perimeterFilter* filter) {
     time_t currentTime = time(NULL);
     
-    // Check count-based rate limiting (need at least 2 counts since last execution)
     int countDiff = filter->count - filter->lastExecutionCount;
     int countOK = (countDiff >= 2);
     
-    // Check time-based rate limiting (need at least 1 second since last execution)
     int timeOK = 0;
     double timeDiff = 0.0;
     
@@ -214,7 +212,6 @@ int checkParameterFilter(const char* parameter) {
                        perimeterFilters[i].lastExecutionCount);
             }
             
-            // Check if action should be executed with BOTH count and time-based rate limiting
             if (perimeterFilters[i].triggerAction && perimeterFilters[i].action[0]) {
                 if (canExecuteAction(&perimeterFilters[i])) {
                     if (messagePrintingEnabled) {
@@ -277,7 +274,7 @@ void executeAction(const char* action) {
         
         if (sscanf(action, "@%255[^:]:%255s", actionName, parameter) >= 1) {
             if (executeBuiltinAction(actionName, parameter[0] ? parameter : NULL)) {
-                return; // Built-in action executed successfully
+                return; 
             }
         }
     }
@@ -287,7 +284,6 @@ void executeAction(const char* action) {
         execl("/bin/sh", "sh", "-c", action, (char *)NULL);
         exit(1);
     } else if (pid > 0) {
-        // Non-blocking execution
     } else {
         perror("fork failed");
     }
@@ -311,7 +307,7 @@ void setupDefaultFilters(void) {
             perimeterFilters[filterCount].count = 0;
             perimeterFilters[filterCount].enabled = 1;
             perimeterFilters[filterCount].lastReceived = 0;
-            perimeterFilters[filterCount].triggerAction = 1; // Enable actions by default
+            perimeterFilters[filterCount].triggerAction = 1; 
             perimeterFilters[filterCount].lastExecutionCount = 0;
             perimeterFilters[filterCount].lastExecutionTime = 0;
             filterCount++;
