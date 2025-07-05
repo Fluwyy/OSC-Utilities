@@ -2,6 +2,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include "keyPress.h"
 
 perimeterFilter perimeterFilters[MAX_FILTERS];
 int filterCount = 0;
@@ -38,13 +39,15 @@ int generateDefaultConfig(void) {
         perimeterFilters[filterCount].count = 0;
         perimeterFilters[filterCount].enabled = 1;
         perimeterFilters[filterCount].lastReceived = 0;
-        perimeterFilters[filterCount].triggerAction = 1; 
-        perimeterFilters[filterCount].lastExecutionCount = 0;
-        perimeterFilters[filterCount].lastExecutionTime = 0;
+        perimeterFilters[filterCount].triggerAction = 1;
+        
+        initRateLimiter(&perimeterFilters[filterCount].rateLimiter);
+        
         filterCount++;
         
-        printf("  -> Added: %s (%s)\n", 
-               defaultFilters[i].pattern, defaultFilters[i].description);
+        printf("  -> Added: %s (%s) [Rate: %dc/%ds]\n", 
+               defaultFilters[i].pattern, defaultFilters[i].description,
+               DEFAULT_RATE_LIMIT_COUNT, DEFAULT_RATE_LIMIT_SECONDS);
     }
     
     printf("Saving default config to '%s'...\n", CONFIG_FILE);
@@ -52,44 +55,13 @@ int generateDefaultConfig(void) {
         printf("✓ Default config file created successfully!\n");
         printf("✓ Generated %d default media control filters\n", filterCount);
         printf("✓ Message printing enabled\n");
-        printf("✓ Rate limiting: >=2 counts AND >=%d second(s)\n", RATE_LIMIT_SECONDS);
+        printf("✓ Default rate limiting: %dc/%ds\n", 
+               DEFAULT_RATE_LIMIT_COUNT, DEFAULT_RATE_LIMIT_SECONDS);
         return 0;
     } else {
         printf("✗ ERROR: Failed to create config file '%s'\n", CONFIG_FILE);
-        printf("  Check file permissions in current directory\n");
         return -1;
     }
-}
-
-int canExecuteAction(perimeterFilter* filter) {
-    time_t currentTime = time(NULL);
-    
-    int countDiff = filter->count - filter->lastExecutionCount;
-    int countOK = (countDiff >= 2);
-    
-    int timeOK = 0;
-    double timeDiff = 0.0;
-    
-    if (filter->lastExecutionTime == 0) {
-        timeOK = 1; 
-        timeDiff = 0.0;
-    } else {
-        timeDiff = difftime(currentTime, filter->lastExecutionTime);
-        timeOK = (timeDiff >= RATE_LIMIT_SECONDS);
-    }
-    
-    if (messagePrintingEnabled) {
-        printf("Rate limit check: Count diff=%d (need >=2, %s), Time diff=%.1fs (need >=%ds, %s)\n",
-               countDiff, countOK ? "OK" : "BLOCKED",
-               timeDiff, RATE_LIMIT_SECONDS, timeOK ? "OK" : "BLOCKED");
-    }
-    
-    if (countOK && timeOK) {
-        filter->lastExecutionTime = currentTime;
-        return 1;
-    }
-    
-    return 0;
 }
 
 void addPerimeterFilter(const char* pattern) {
@@ -110,12 +82,14 @@ void addPerimeterFilter(const char* pattern) {
     perimeterFilters[filterCount].enabled = 1;
     perimeterFilters[filterCount].lastReceived = 0;
     perimeterFilters[filterCount].triggerAction = 0;
-    perimeterFilters[filterCount].lastExecutionCount = 0;
-    perimeterFilters[filterCount].lastExecutionTime = 0;
     memset(perimeterFilters[filterCount].action, 0, MAX_ACTION_LENGTH);
+    
+    initRateLimiter(&perimeterFilters[filterCount].rateLimiter);
+    
     filterCount++;
     
-    printf("Added filter: '%s'\n", pattern);
+    printf("Added filter: '%s' [Default rate limit: %dc/%ds]\n", 
+           pattern, DEFAULT_RATE_LIMIT_COUNT, DEFAULT_RATE_LIMIT_SECONDS);
     saveConfig();
 }
 
@@ -140,30 +114,36 @@ void listParameterFilters(void) {
         return;
     }
 
-    printf("Parameter Filters (Rate Limited: >=2 counts AND >=%ds):\n", RATE_LIMIT_SECONDS);
-    printf("%-40s %-8s %-8s %-8s %-8s %-15s %-15s %s\n", "Pattern", "Count", "Status", "Action", "LastExec", "Last Received", "Last Executed", "Command");
-    printf("%-40s %-8s %-8s %-8s %-8s %-15s %-15s %s\n", "-------", "-----", "------", "------", "--------", "-------------", "-------------", "-------");
+    printf("Parameter Filters:\n");
+    printf("%-40s %-8s %-8s %-8s %-8s %-12s %-15s %-15s %s\n", 
+           "Pattern", "Count", "Status", "Action", "LastExec", "Rate Limit", "Last Received", "Last Executed", "Command");
+    printf("%-40s %-8s %-8s %-8s %-8s %-12s %-15s %-15s %s\n", 
+           "-------", "-----", "------", "------", "--------", "----------", "-------------", "-------------", "-------");
     
     for (int i = 0; i < filterCount; i++) {
         char timeStr[64] = "Never";
         char execTimeStr[64] = "Never";
+        char rateLimitStr[32];
         
         if (perimeterFilters[i].lastReceived > 0) {
             struct tm *tm_info = localtime(&perimeterFilters[i].lastReceived);
             strftime(timeStr, sizeof(timeStr), "%H:%M:%S", tm_info);
         }
         
-        if (perimeterFilters[i].lastExecutionTime > 0) {
-            struct tm *tm_info = localtime(&perimeterFilters[i].lastExecutionTime);
+        if (perimeterFilters[i].rateLimiter.lastExecutionTime > 0) {
+            struct tm *tm_info = localtime(&perimeterFilters[i].rateLimiter.lastExecutionTime);
             strftime(execTimeStr, sizeof(execTimeStr), "%H:%M:%S", tm_info);
         }
         
-        printf("%-40s %-8d %-8s %-8s %-8d %-15s %-15s %s\n",
+        formatRateLimitString(&perimeterFilters[i].rateLimiter, rateLimitStr, sizeof(rateLimitStr));
+        
+        printf("%-40s %-8d %-8s %-8s %-8d %-12s %-15s %-15s %s\n",
                perimeterFilters[i].pattern,
                perimeterFilters[i].count,
                perimeterFilters[i].enabled ? "ON" : "OFF",
                perimeterFilters[i].triggerAction ? "ON" : "OFF",
-               perimeterFilters[i].lastExecutionCount,
+               perimeterFilters[i].rateLimiter.lastExecutionCount,
+               rateLimitStr,
                timeStr,
                execTimeStr,
                perimeterFilters[i].action[0] ? perimeterFilters[i].action : "None");
@@ -180,8 +160,7 @@ void resetFilterCounts(void) {
     for (int i = 0; i < filterCount; i++) {
         perimeterFilters[i].count = 0;
         perimeterFilters[i].lastReceived = 0;
-        perimeterFilters[i].lastExecutionCount = 0;
-        perimeterFilters[i].lastExecutionTime = 0;
+        resetRateLimiter(&perimeterFilters[i].rateLimiter);
     }
     printf("All filter counts and rate limits reset\n");
     saveConfig();
@@ -204,6 +183,54 @@ void disableFilter(const char* pattern) {
         if (strcmp(perimeterFilters[i].pattern, pattern) == 0) {
             perimeterFilters[i].enabled = 0;
             printf("Filter '%s' disabled\n", pattern);
+            saveConfig();
+            return;
+        }
+    }
+    printf("Filter '%s' not found\n", pattern);
+}
+
+void setFilterRateLimit(const char* pattern, int count, int seconds) {
+    for (int i = 0; i < filterCount; i++) {
+        if (strcmp(perimeterFilters[i].pattern, pattern) == 0) {
+            setRateLimitValues(&perimeterFilters[i].rateLimiter, count, seconds);
+            printf("Set rate limit for filter '%s': %dc/%ds\n", pattern, count, seconds);
+            saveConfig();
+            return;
+        }
+    }
+    printf("Filter '%s' not found\n", pattern);
+}
+
+void listFilterRateLimits(void) {
+    if (filterCount == 0) {
+        printf("No parameter filters configured\n");
+        return;
+    }
+
+    printf("Filter Rate Limits:\n");
+    printf("%-40s %-12s %-12s %-10s %s\n", "Pattern", "Min Count", "Min Seconds", "Default?", "Status");
+    printf("%-40s %-12s %-12s %-10s %s\n", "-------", "---------", "-----------", "--------", "------");
+    
+    for (int i = 0; i < filterCount; i++) {
+        int count, seconds;
+        getRateLimitValues(&perimeterFilters[i].rateLimiter, &count, &seconds);
+        
+        printf("%-40s %-12d %-12d %-10s %s\n",
+               perimeterFilters[i].pattern,
+               count,
+               seconds,
+               isRateLimitDefault(&perimeterFilters[i].rateLimiter) ? "YES" : "NO",
+               perimeterFilters[i].enabled ? "ENABLED" : "DISABLED");
+    }
+}
+
+void resetFilterRateLimit(const char* pattern) {
+    for (int i = 0; i < filterCount; i++) {
+        if (strcmp(perimeterFilters[i].pattern, pattern) == 0) {
+            initRateLimiter(&perimeterFilters[i].rateLimiter);
+            printf("Reset rate limit for filter '%s' to defaults: %dc/%ds\n", 
+                   pattern, DEFAULT_RATE_LIMIT_COUNT, DEFAULT_RATE_LIMIT_SECONDS);
             saveConfig();
             return;
         }
@@ -240,28 +267,29 @@ int checkParameterFilter(const char* parameter) {
             perimeterFilters[i].lastReceived = currentTime;
             
             if (messagePrintingEnabled) {
-                printf("FILTER MATCH: '%s' (Count: %d, LastExec: %d)\n",
+                char rateLimitStr[32];
+                formatRateLimitString(&perimeterFilters[i].rateLimiter, rateLimitStr, sizeof(rateLimitStr));
+                printf("FILTER MATCH: '%s' (Count: %d, LastExec: %d, Rate: %s)\n",
                        perimeterFilters[i].pattern, perimeterFilters[i].count, 
-                       perimeterFilters[i].lastExecutionCount);
+                       perimeterFilters[i].rateLimiter.lastExecutionCount, rateLimitStr);
             }
             
             if (perimeterFilters[i].triggerAction && perimeterFilters[i].action[0]) {
-                if (canExecuteAction(&perimeterFilters[i])) {
+                if (canExecuteWithRateLimit(&perimeterFilters[i].rateLimiter, 
+                                          perimeterFilters[i].count, messagePrintingEnabled)) {
                     if (messagePrintingEnabled) {
-                        printf("Executing action (BOTH rate limits OK): %s\n", 
+                        printf("Executing action (rate limits OK): %s\n", 
                                perimeterFilters[i].action);
                     }
                     
                     executeAction(perimeterFilters[i].action);
-                    perimeterFilters[i].lastExecutionCount = perimeterFilters[i].count;
+                    updateRateLimiterExecution(&perimeterFilters[i].rateLimiter, 
+                                             perimeterFilters[i].count);
                 } else {
                     if (messagePrintingEnabled) {
-                        int countDiff = perimeterFilters[i].count - perimeterFilters[i].lastExecutionCount;
-                        double timeDiff = perimeterFilters[i].lastExecutionTime > 0 ? 
-                            difftime(currentTime, perimeterFilters[i].lastExecutionTime) : 0.0;
-                        
-                        printf("Action RATE LIMITED - Count: %d (need >=2), Time: %.1fs (need >=%ds): %s\n", 
-                               countDiff, timeDiff, RATE_LIMIT_SECONDS, perimeterFilters[i].action);
+                        char rateLimitStr[32];
+                        formatRateLimitString(&perimeterFilters[i].rateLimiter, rateLimitStr, sizeof(rateLimitStr));
+                        printf("Action RATE LIMITED (%s): %s\n", rateLimitStr, perimeterFilters[i].action);
                     }
                 }
             }
@@ -278,8 +306,10 @@ void setFilterAction(const char* pattern, const char* action) {
             strncpy(perimeterFilters[i].action, action, MAX_ACTION_LENGTH - 1);
             perimeterFilters[i].action[MAX_ACTION_LENGTH - 1] = '\0';
             perimeterFilters[i].triggerAction = 1;
-            printf("Set action for filter '%s': %s (Rate limited: >=2 counts AND >=%ds)\n", 
-                   pattern, action, RATE_LIMIT_SECONDS);
+            
+            char rateLimitStr[32];
+            formatRateLimitString(&perimeterFilters[i].rateLimiter, rateLimitStr, sizeof(rateLimitStr));
+            printf("Set action for filter '%s': %s [Rate limit: %s]\n", pattern, action, rateLimitStr);
             saveConfig();
             return;
         }
@@ -307,7 +337,11 @@ void executeAction(const char* action) {
         
         if (sscanf(action, "@%255[^:]:%255s", actionName, parameter) >= 1) {
             if (executeBuiltinAction(actionName, parameter[0] ? parameter : NULL)) {
-                return; 
+                return;
+            }
+            
+            if (executeBuiltinKeyAction(actionName, parameter[0] ? parameter : NULL)) {
+                return;
             }
         }
     }
@@ -324,7 +358,7 @@ void executeAction(const char* action) {
 }
 
 void setupDefaultFilters(void) {
-    printf("Setting up default media control filters (Rate limited: >=2 counts AND >=%ds)...\n", RATE_LIMIT_SECONDS);
+    printf("Setting up default media control filters...\n");
     
     for (int i = 0; defaultFilters[i].pattern != NULL; i++) {
         int exists = 0;
@@ -342,21 +376,23 @@ void setupDefaultFilters(void) {
             perimeterFilters[filterCount].enabled = 1;
             perimeterFilters[filterCount].lastReceived = 0;
             perimeterFilters[filterCount].triggerAction = 1;
-            perimeterFilters[filterCount].lastExecutionCount = 0;
-            perimeterFilters[filterCount].lastExecutionTime = 0;
+            
+            initRateLimiter(&perimeterFilters[filterCount].rateLimiter);
+            
             filterCount++;
             
-            printf("Added default filter: %s -> %s\n", 
-                   defaultFilters[i].pattern, defaultFilters[i].description);
+            printf("Added default filter: %s -> %s [Rate: %dc/%ds]\n", 
+                   defaultFilters[i].pattern, defaultFilters[i].description,
+                   DEFAULT_RATE_LIMIT_COUNT, DEFAULT_RATE_LIMIT_SECONDS);
         }
     }
     
     saveConfig();
-    printf("Default filters setup complete! All actions require BOTH >=2 counts AND >=%d second(s).\n", RATE_LIMIT_SECONDS);
+    printf("Default filters setup complete!\n");
 }
 
 void listDefaultFilters(void) {
-    printf("Available Default Filters (Rate Limited: >=2 counts AND >=%ds):\n", RATE_LIMIT_SECONDS);
+    printf("Available Default Filters:\n");
     printf("%-40s %-20s %s\n", "Pattern", "Action", "Description");
     printf("%-40s %-20s %s\n", "-------", "------", "-----------");
     
@@ -368,7 +404,8 @@ void listDefaultFilters(void) {
     }
     
     printf("\nUse 'defaults' command to add all default filters.\n");
-    printf("All actions require BOTH >=2 message counts AND >=%d second(s) to execute.\n", RATE_LIMIT_SECONDS);
+    printf("Default rate limiting: %dc/%ds\n", 
+           DEFAULT_RATE_LIMIT_COUNT, DEFAULT_RATE_LIMIT_SECONDS);
 }
 
 void addDefaultFilter(const char* pattern, const char* action, const char* description) {
@@ -392,26 +429,40 @@ void addDefaultFilter(const char* pattern, const char* action, const char* descr
     perimeterFilters[filterCount].enabled = 1;
     perimeterFilters[filterCount].lastReceived = 0;
     perimeterFilters[filterCount].triggerAction = 1;
-    perimeterFilters[filterCount].lastExecutionCount = 0;
-    perimeterFilters[filterCount].lastExecutionTime = 0;
+    
+    initRateLimiter(&perimeterFilters[filterCount].rateLimiter);
+    
     filterCount++;
     
-    printf("Added default filter: '%s' with action '%s' (Rate limited: >=2 counts AND >=%ds)\n", 
-           pattern, action, RATE_LIMIT_SECONDS);
+    printf("Added default filter: '%s' with action '%s' [Rate: %dc/%ds]\n", 
+           pattern, action, DEFAULT_RATE_LIMIT_COUNT, DEFAULT_RATE_LIMIT_SECONDS);
     saveConfig();
 }
 
 void listBuiltinActions(void) {
-    printf("Built-in Media Control Actions (Rate Limited: >=2 counts AND >=%ds):\n", RATE_LIMIT_SECONDS);
+    printf("Built-in Media Control Actions:\n");
     printf("  @media-play               - Play/pause media\n");
     printf("  @media-stop               - Stop media\n");
     printf("  @media-next               - Next track\n");
-    printf("  @media-prev               - Previous track\n");
+    printf("  @media-prev               - Previous track\n\n");
     
-    printf("\nExamples:\n");
+    printf("Built-in KeyPress Actions:\n");
+    printf("  @key:<keystring>          - Send custom key press\n");
+    printf("  @copy                     - Ctrl+C (copy)\n");
+    printf("  @paste                    - Ctrl+V (paste)\n");
+    printf("  @cut                      - Ctrl+X (cut)\n");
+    printf("  @undo                     - Ctrl+Z (undo)\n");
+    printf("  @redo                     - Ctrl+Y (redo)\n");
+    printf("  @select-all               - Ctrl+A (select all)\n");
+    printf("  @alt-tab                  - Alt+Tab (switch windows)\n");
+    printf("  @screenshot               - Print Screen\n\n");
+    
+    printf("Examples:\n");
     printf("  action /avatar/parameters/MediaPlay @media-play\n");
-    printf("  action /avatar/parameters/MediaNext @media-next\n");
-    printf("\nNote: All actions require BOTH count and time-based rate limiting.\n");
+    printf("  action discordmute @key:ctrl+shift+m\n");
+    printf("  action screenshot @screenshot\n");
+    printf("  action copy-text @copy\n");
+    printf("\nNote: All actions use configurable rate limiting per filter.\n");
 }
 
 int executeBuiltinAction(const char* actionName, const char* parameter) {
@@ -431,35 +482,36 @@ int executeBuiltinAction(const char* actionName, const char* parameter) {
         return 1;
     }
     
-    printf("Unknown built-in action: @%s\n", actionName);
-    return 0;
+    return 0; 
 }
 
 int saveConfig(void) {
     FILE *file = fopen(CONFIG_FILE, "w");
     if (!file) {
         printf("ERROR: Cannot create/write to config file '%s'\n", CONFIG_FILE);
-        printf("Current directory: ");
-        system("pwd");
-        printf("Permissions: ");
-        system("ls -la . | head -1");
         perror("fopen failed");
         return -1;
     }
 
     fprintf(file, "{\n");
     fprintf(file, "  \"messagePrintingEnabled\": %s,\n", messagePrintingEnabled ? "true" : "false");
-    fprintf(file, "  \"rateLimitSeconds\": %d,\n", RATE_LIMIT_SECONDS);
+    fprintf(file, "  \"defaultRateLimitCount\": %d,\n", DEFAULT_RATE_LIMIT_COUNT);
+    fprintf(file, "  \"defaultRateLimitSeconds\": %d,\n", DEFAULT_RATE_LIMIT_SECONDS);
     fprintf(file, "  \"filters\": [\n");
     
     for (int i = 0; i < filterCount; i++) {
+        int count, seconds;
+        getRateLimitValues(&perimeterFilters[i].rateLimiter, &count, &seconds);
+        
         fprintf(file, "    {\n");
         fprintf(file, "      \"pattern\": \"%s\",\n", perimeterFilters[i].pattern);
         fprintf(file, "      \"enabled\": %s,\n", perimeterFilters[i].enabled ? "true" : "false");
         fprintf(file, "      \"triggerAction\": %s,\n", perimeterFilters[i].triggerAction ? "true" : "false");
         fprintf(file, "      \"action\": \"%s\",\n", perimeterFilters[i].action);
-        fprintf(file, "      \"lastExecutionCount\": %d,\n", perimeterFilters[i].lastExecutionCount);
-        fprintf(file, "      \"lastExecutionTime\": %ld\n", (long)perimeterFilters[i].lastExecutionTime);
+        fprintf(file, "      \"lastExecutionCount\": %d,\n", perimeterFilters[i].rateLimiter.lastExecutionCount);
+        fprintf(file, "      \"lastExecutionTime\": %ld,\n", (long)perimeterFilters[i].rateLimiter.lastExecutionTime);
+        fprintf(file, "      \"rateLimitCount\": %d,\n", count);
+        fprintf(file, "      \"rateLimitSeconds\": %d\n", seconds);
         fprintf(file, "    }%s\n", (i < filterCount - 1) ? "," : "");
     }
     
@@ -500,6 +552,8 @@ int loadConfig(void) {
     int triggerAction = 0;
     int lastExecutionCount = 0;
     time_t lastExecutionTime = 0;
+    int rateLimitCount = DEFAULT_RATE_LIMIT_COUNT;
+    int rateLimitSeconds = DEFAULT_RATE_LIMIT_SECONDS;
     int inFilter = 0;
     
     filterCount = 0;
@@ -529,6 +583,10 @@ int loadConfig(void) {
             long temp;
             sscanf(line, " \"lastExecutionTime\": %ld", &temp);
             lastExecutionTime = (time_t)temp;
+        } else if (strstr(line, "\"rateLimitCount\":")) {
+            sscanf(line, " \"rateLimitCount\": %d", &rateLimitCount);
+        } else if (strstr(line, "\"rateLimitSeconds\":")) {
+            sscanf(line, " \"rateLimitSeconds\": %d", &rateLimitSeconds);
         } else if (strstr(line, "}") && inFilter) {
             if (filterCount < MAX_FILTERS && pattern[0]) {
                 strcpy(perimeterFilters[filterCount].pattern, pattern);
@@ -537,8 +595,12 @@ int loadConfig(void) {
                 strcpy(perimeterFilters[filterCount].action, action);
                 perimeterFilters[filterCount].count = 0;
                 perimeterFilters[filterCount].lastReceived = 0;
-                perimeterFilters[filterCount].lastExecutionCount = lastExecutionCount;
-                perimeterFilters[filterCount].lastExecutionTime = lastExecutionTime;
+                
+                initRateLimiterWithValues(&perimeterFilters[filterCount].rateLimiter, 
+                                        rateLimitCount, rateLimitSeconds);
+                perimeterFilters[filterCount].rateLimiter.lastExecutionCount = lastExecutionCount;
+                perimeterFilters[filterCount].rateLimiter.lastExecutionTime = lastExecutionTime;
+                
                 filterCount++;
             }
             
@@ -548,11 +610,13 @@ int loadConfig(void) {
             triggerAction = 0;
             lastExecutionCount = 0;
             lastExecutionTime = 0;
+            rateLimitCount = DEFAULT_RATE_LIMIT_COUNT;
+            rateLimitSeconds = DEFAULT_RATE_LIMIT_SECONDS;
             inFilter = 0;
         }
     }
     
     fclose(file);
-    printf("Loaded %d filters from config (Rate limit: >=2 counts AND >=%ds)\n", filterCount, RATE_LIMIT_SECONDS);
+    printf("Loaded %d filters from config\n", filterCount);
     return 0;
 }
