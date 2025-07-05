@@ -1,29 +1,47 @@
 {
   "messagePrintingEnabled": false,
+  "defaultRateLimitCount": 2,
+  "defaultRateLimitSeconds": 1,
   "filters": [
     {
-      "pattern": "/avatar/parameters/playpause",
+      "pattern": "/avatar/parameters/MediaPlay",
       "enabled": true,
       "triggerAction": true,
-      "action": "@media-play"
+      "action": "@media-play",
+      "lastExecutionCount": 0,
+      "lastExecutionTime": 0,
+      "rateLimitCount": 2,
+      "rateLimitSeconds": 1
     },
     {
-      "pattern": "/avatar/parameters/Stop",
+      "pattern": "/avatar/parameters/MediaStop",
       "enabled": true,
       "triggerAction": true,
-      "action": "@media-stop"
+      "action": "@media-stop",
+      "lastExecutionCount": 0,
+      "lastExecutionTime": 0,
+      "rateLimitCount": 2,
+      "rateLimitSeconds": 1
     },
     {
-      "pattern": "/avatar/parameters/Next",
+      "pattern": "/avatar/parameters/MediaNext",
       "enabled": true,
       "triggerAction": true,
-      "action": "@media-next"
+      "action": "@media-next",
+      "lastExecutionCount": 2,
+      "lastExecutionTime": 1751683550,
+      "rateLimitCount": 2,
+      "rateLimitSeconds": 1
     },
     {
-      "pattern": "/avatar/parameters/previous",
+      "pattern": "/avatar/parameters/MediaPrev",
       "enabled": true,
       "triggerAction": true,
-      "action": "@media-prev"
+      "action": "@media-prev",
+      "lastExecutionCount": 2,
+      "lastExecutionTime": 1751683549,
+      "rateLimitCount": 2,
+      "rateLimitSeconds": 1
     }
   ]
 }
