@@ -13,6 +13,7 @@
 #define MAX_ACTION_LENGTH 512
 #define CONFIG_FILE "config.json"
 #define RATE_LIMIT_SECONDS 1
+
 typedef struct {
     char pattern[MAX_PATTERN_LENGTH];
     int count;
@@ -21,7 +22,7 @@ typedef struct {
     char action[MAX_ACTION_LENGTH]; 
     int triggerAction;               
     int lastExecutionCount;         
-    time_t lastExecutionTime;      
+    time_t lastExecutionTime;       
 } perimeterFilter;
 
 extern perimeterFilter perimeterFilters[MAX_FILTERS];
@@ -57,5 +58,8 @@ void listBuiltinActions(void);
 int executeBuiltinAction(const char* actionName, const char* parameter);
 
 int canExecuteAction(perimeterFilter* filter);
+
+int fileExists(const char* filename);
+int generateDefaultConfig(void);
 
 #endif
