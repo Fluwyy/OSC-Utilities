@@ -7,12 +7,12 @@
 #include <time.h>
 
 #include "mediaControl.h"
+#include "rateLimiter.h"
 
 #define MAX_FILTERS 100
 #define MAX_PATTERN_LENGTH 256
 #define MAX_ACTION_LENGTH 512
 #define CONFIG_FILE "config.json"
-#define RATE_LIMIT_SECONDS 1
 
 typedef struct {
     char pattern[MAX_PATTERN_LENGTH];
@@ -20,9 +20,8 @@ typedef struct {
     int enabled;
     time_t lastReceived;
     char action[MAX_ACTION_LENGTH]; 
-    int triggerAction;               
-    int lastExecutionCount;         
-    time_t lastExecutionTime;       
+    int triggerAction;
+    RateLimiter rateLimiter;        
 } perimeterFilter;
 
 extern perimeterFilter perimeterFilters[MAX_FILTERS];
@@ -50,14 +49,16 @@ void setFilterAction(const char* pattern, const char* action);
 void toggleFilterAction(const char* pattern);
 void executeAction(const char* action);
 
+void setFilterRateLimit(const char* pattern, int count, int seconds);
+void listFilterRateLimits(void);
+void resetFilterRateLimit(const char* pattern);
+
 void setupDefaultFilters(void);
 void listDefaultFilters(void);
 void addDefaultFilter(const char* pattern, const char* action, const char* description);
 
 void listBuiltinActions(void);
 int executeBuiltinAction(const char* actionName, const char* parameter);
-
-int canExecuteAction(perimeterFilter* filter);
 
 int fileExists(const char* filename);
 int generateDefaultConfig(void);
