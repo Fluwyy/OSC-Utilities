@@ -51,7 +51,6 @@ int setupUinputDevice(void) {
     write(uinput_fd, &uidev, sizeof(uidev));
     ioctl(uinput_fd, UI_DEV_CREATE);
 
-
     if (messagePrintingEnabled) {
         printf("Media control device initialized\n");
     }
@@ -84,7 +83,6 @@ int sendMediaKey(int keycode) {
 
     emit(fd, EV_KEY, keycode, 1);
     emit(fd, EV_SYN, SYN_REPORT, 0);
-    
     
     emit(fd, EV_KEY, keycode, 0);
     emit(fd, EV_SYN, SYN_REPORT, 0);
