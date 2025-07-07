@@ -25,16 +25,14 @@ int canExecuteWithRateLimit(RateLimiter* limiter, int currentCount, int enableDe
     
     time_t currentTime = time(NULL);
     
-    // Check count-based rate limiting
     int countDiff = currentCount - limiter->lastExecutionCount;
     int countOK = (countDiff >= limiter->rateLimitCount);
     
-    // Check time-based rate limiting
     int timeOK = 0;
     double timeDiff = 0.0;
     
     if (limiter->lastExecutionTime == 0) {
-        timeOK = 1; // First execution
+        timeOK = 1; 
         timeDiff = 0.0;
     } else {
         timeDiff = difftime(currentTime, limiter->lastExecutionTime);
@@ -47,9 +45,8 @@ int canExecuteWithRateLimit(RateLimiter* limiter, int currentCount, int enableDe
                timeDiff, limiter->rateLimitSeconds, timeOK ? "OK" : "BLOCKED");
     }
     
-    // Both conditions must be met (unless rate limiting is disabled)
     if (limiter->rateLimitCount <= 1 && limiter->rateLimitSeconds <= 0) {
-        // Rate limiting effectively disabled
+        
         return 1;
     }
     
