@@ -1,5 +1,5 @@
 #include "keyPress.h"
-#include "oscUtility.h"  // For isMessagePrintingEnabled()
+#include "oscUtility.h"  
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -13,7 +13,6 @@ int keyPressDebugEnabled = 0;
 static int keypress_uinput_fd = -1;
 KeyHashTable* keyHashTable = NULL;
 
-// Key name to keycode mapping data
 typedef struct {
     const char* name;
     int keycode;
@@ -69,7 +68,6 @@ static const KeyMappingData keyMappingData[] = {
     {NULL, 0, NULL}
 };
 
-// Case-insensitive string comparison function
 int strcasecmp_portable(const char* s1, const char* s2) {
     while (*s1 && *s2) {
         int c1 = tolower(*s1);
@@ -83,17 +81,15 @@ int strcasecmp_portable(const char* s1, const char* s2) {
     return tolower(*s1) - tolower(*s2);
 }
 
-// Hash function - simple but effective for key names
 unsigned int hashFunction(const char* key) {
     if (!key) return 0;
     
-    unsigned int hash = 5381;  // djb2 hash algorithm
+    unsigned int hash = 5381;  
     int c;
     
     while ((c = *key++)) {
-        // Convert to lowercase for case-insensitive hashing
         c = tolower(c);
-        hash = ((hash << 5) + hash) + c; // hash * 33 + c
+        hash = ((hash << 5) + hash) + c; /
     }
     
     return hash % KEY_HASH_TABLE_SIZE;
@@ -101,7 +97,7 @@ unsigned int hashFunction(const char* key) {
 
 int initKeyHashTable(void) {
     if (keyHashTable) {
-        return 0; // Already initialized
+        return 0; 
     }
     
     keyHashTable = malloc(sizeof(KeyHashTable));
@@ -110,13 +106,11 @@ int initKeyHashTable(void) {
         return -1;
     }
     
-    // Initialize all buckets to NULL
     for (int i = 0; i < KEY_HASH_TABLE_SIZE; i++) {
         keyHashTable->buckets[i] = NULL;
     }
     keyHashTable->size = 0;
     
-    // Populate hash table with key mappings
     for (int i = 0; keyMappingData[i].name != NULL; i++) {
         if (insertKeyMapping(keyMappingData[i].name, 
                            keyMappingData[i].keycode, 
@@ -136,7 +130,6 @@ int initKeyHashTable(void) {
 void destroyKeyHashTable(void) {
     if (!keyHashTable) return;
     
-    // Free all nodes in all buckets
     for (int i = 0; i < KEY_HASH_TABLE_SIZE; i++) {
         KeyHashNode* current = keyHashTable->buckets[i];
         while (current) {
@@ -159,11 +152,9 @@ int insertKeyMapping(const char* name, int keycode, const char* description) {
     
     unsigned int index = hashFunction(name);
     
-    // Check if key already exists
     KeyHashNode* current = keyHashTable->buckets[index];
     while (current) {
         if (strcasecmp_portable(current->name, name) == 0) {
-            // Update existing entry
             current->keycode = keycode;
             current->description = description;
             return 0;
@@ -171,7 +162,6 @@ int insertKeyMapping(const char* name, int keycode, const char* description) {
         current = current->next;
     }
     
-    // Create new node
     KeyHashNode* newNode = malloc(sizeof(KeyHashNode));
     if (!newNode) {
         printf("Failed to allocate memory for key hash node\n");
@@ -203,13 +193,12 @@ int getKeycodeFromName(const char* keyName) {
         current = current->next;
     }
     
-    return -1; // Key not found
+    return -1; 
 }
 
 const char* getKeyNameFromCode(int keycode) {
     if (!keyHashTable) return "unknown";
     
-    // Linear search through all buckets (reverse lookup is less common)
     for (int i = 0; i < KEY_HASH_TABLE_SIZE; i++) {
         KeyHashNode* current = keyHashTable->buckets[i];
         while (current) {
@@ -271,11 +260,9 @@ int setupKeypressUinputDevice(void) {
         return -1;
     }
 
-    // Enable key events
     ioctl(keypress_uinput_fd, UI_SET_EVBIT, EV_KEY);
     ioctl(keypress_uinput_fd, UI_SET_EVBIT, EV_SYN);
     
-    // Enable all keys we might want to send
     if (keyHashTable) {
         for (int i = 0; i < KEY_HASH_TABLE_SIZE; i++) {
             KeyHashNode* current = keyHashTable->buckets[i];
@@ -322,10 +309,9 @@ void cleanupKeypressUinputDevice(void) {
 
 int initKeyPressSystem(void) {
     if (keyPressSystemInitialized) {
-        return 0; // Already initialized
+        return 0; 
     }
     
-    // Initialize hash table first
     if (initKeyHashTable() < 0) {
         return -1;
     }
@@ -369,7 +355,6 @@ int sendKeyEvent(int fd, int keycode, int value) {
         return -1;
     }
     
-    // Send sync event
     ie.type = EV_SYN;
     ie.code = SYN_REPORT;
     ie.value = 0;
@@ -380,14 +365,11 @@ int sendSingleKey(int keycode) {
     int fd = setupKeypressUinputDevice();
     if (fd < 0) return 0;
     
-    // Press key
     if (sendKeyEvent(fd, keycode, 1) < 0) return 0;
     
-    // Small delay - use sleep instead of usleep for C99 compatibility
-    struct timespec ts = {0, 10000000}; // 10ms in nanoseconds
+    struct timespec ts = {0, 10000000}; 
     nanosleep(&ts, NULL);
     
-    // Release key
     if (sendKeyEvent(fd, keycode, 0) < 0) return 0;
     
     if (keyPressDebugEnabled) {
@@ -401,18 +383,15 @@ int sendKeyCombo(const KeyAction* keys, int keyCount) {
     int fd = setupKeypressUinputDevice();
     if (fd < 0 || !keys || keyCount <= 0) return 0;
     
-    // Press all keys in order
     for (int i = 0; i < keyCount; i++) {
         if (sendKeyEvent(fd, keys[i].keycode, 1) < 0) return 0;
         struct timespec ts = {0, 5000000}; // 5ms
         nanosleep(&ts, NULL);
     }
     
-    // Small delay while keys are held
     struct timespec ts = {0, 20000000}; // 20ms
     nanosleep(&ts, NULL);
     
-    // Release all keys in reverse order
     for (int i = keyCount - 1; i >= 0; i--) {
         if (sendKeyEvent(fd, keys[i].keycode, 0) < 0) return 0;
         struct timespec ts2 = {0, 5000000}; // 5ms
@@ -429,11 +408,9 @@ int sendKeyCombo(const KeyAction* keys, int keyCount) {
 int sendKeySequence(const KeyAction* keys, int keyCount) {
     if (!keys || keyCount <= 0) return 0;
     
-    // Send each key individually with delays
     for (int i = 0; i < keyCount; i++) {
         if (!sendSingleKey(keys[i].keycode)) return 0;
         
-        // Delay between keys in sequence
         if (i < keyCount - 1) {
             struct timespec ts = {0, 50000000}; // 50ms
             nanosleep(&ts, NULL);
@@ -451,14 +428,11 @@ int sendKeyHold(int keycode, int duration_ms) {
     int fd = setupKeypressUinputDevice();
     if (fd < 0) return 0;
     
-    // Press key
     if (sendKeyEvent(fd, keycode, 1) < 0) return 0;
     
-    // Hold for specified duration
     struct timespec ts = {duration_ms / 1000, (duration_ms % 1000) * 1000000};
     nanosleep(&ts, NULL);
     
-    // Release key
     if (sendKeyEvent(fd, keycode, 0) < 0) return 0;
     
     if (keyPressDebugEnabled) {
@@ -473,15 +447,12 @@ int parseKeyString(const char* keyString, KeyPressAction* action) {
     
     memset(action, 0, sizeof(KeyPressAction));
     
-    // Make a copy to work with
     char workString[256];
     strncpy(workString, keyString, sizeof(workString) - 1);
     workString[sizeof(workString) - 1] = '\0';
     
-    // Check for special prefixes
     if (strncmp(workString, "hold:", 5) == 0) {
         action->type = KEY_ACTION_HOLD;
-        // Parse hold:key:duration format
         char* keyPart = workString + 5;
         char* durationPart = strchr(keyPart, ':');
         if (durationPart) {
@@ -489,7 +460,7 @@ int parseKeyString(const char* keyString, KeyPressAction* action) {
             durationPart++;
             action->keys[0].duration_ms = atoi(durationPart);
         } else {
-            action->keys[0].duration_ms = 500; // Default 500ms
+            action->keys[0].duration_ms = 500; 
         }
         
         int keycode = getKeycodeFromName(keyPart);
@@ -502,7 +473,6 @@ int parseKeyString(const char* keyString, KeyPressAction* action) {
         return 1;
     }
     
-    // Check for sequence (keys separated by spaces)
     if (strchr(workString, ' ')) {
         action->type = KEY_ACTION_SEQUENCE;
         char* token = strtok(workString, " ");
@@ -534,7 +504,6 @@ int parseKeyString(const char* keyString, KeyPressAction* action) {
         return 1;
     }
     
-    // Single key
     action->type = KEY_ACTION_SINGLE;
     int keycode = getKeycodeFromName(workString);
     if (keycode < 0) return 0;
@@ -650,7 +619,6 @@ int executeBuiltinKeyAction(const char* actionName, const char* parameter) {
         return executeKeyPress(parameter);
     }
     
-    // Predefined key actions
     if (strcmp(actionName, "copy") == 0) {
         return executeKeyPress("ctrl+c");
     } else if (strcmp(actionName, "paste") == 0) {
@@ -669,5 +637,5 @@ int executeBuiltinKeyAction(const char* actionName, const char* parameter) {
         return executeKeyPress("printscreen");
     }
     
-    return 0; // Unknown action
+    return 0; 
 }
